@@ -36,19 +36,52 @@ let update x v s = fun y -> if x = y then v else s y
 let s = update "x" 1 @@ update "y" 2 @@ update "z" 3 @@ update "t" 4 empty
 
 (* Some testing; comment this definition out when submitting the solution. *)
-let _ =
+(*let _ =
   List.iter
     (fun x ->
        try  Printf.printf "%s=%d\n" x @@ s x
        with Failure s -> Printf.printf "%s\n" s
-    ) ["x"; "a"; "y"; "z"; "t"; "b"]
+    ) ["x"; "a"; "y"; "z"; "t"; "b"]*)
 
 (* Expression evaluator
-
+	
      val eval : state -> expr -> int
  
    Takes a state and an expression, and returns the value of the expression in 
    the given state.
 *)
-let eval = failwith "Not implemented yet"
+(* Cast bool to int *)
+let to_int b = if b then 1 else 0
+
+(* Cast int to bool *)
+let to_bool i = i != 0
+
+(* Cast (int->int->bool) to (int->int->int) *)
+let c_op1 f = fun a b -> to_int (f a b)
+
+(* Cast (bool->bool->bool) to (int->int->int) *)
+let c_op2 f = fun a b -> to_int (f (to_bool a) (to_bool b))
+
+(* Source operator into OCaml operator *)
+let eval_op op = match op with
+    | "!!" -> c_op2 ( || )
+    | "&&" -> c_op2 ( && )
+    | "==" -> c_op1 ( = )
+    | "!=" -> c_op1 ( <> )
+    | "<=" -> c_op1 ( <= )
+    | "<"  -> c_op1 ( < )
+    | ">=" -> c_op1 ( >= )
+    | ">"  -> c_op1 ( > )
+    | "+"  -> ( + )
+    | "-"  -> ( - )
+    | "*"  -> ( * )
+    | "/"  -> ( / )
+    | "%"  -> ( mod )
+    | _    -> failwith (Printf.sprintf "Unknown operator");;
+
+
+let rec eval s e = match e with
+    | Const n          -> n
+    | Var x            -> s x
+    | Binop (op, l, r) -> eval_op op (eval s l) (eval s r);;
                     
