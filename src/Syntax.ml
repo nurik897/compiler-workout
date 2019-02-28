@@ -34,14 +34,42 @@ module Expr =
     *)
     let update x v s = fun y -> if x = y then v else s y
 
-    (* Expression evaluator
 
-          val eval : state -> t -> int
- 
-       Takes a state and an expression, and returns the value of the expression in 
-       the given state.
-    *)
-    let eval _ = failwith "Not implemented yet"
+   (* Cast bool to int *)
+let to_int b = if b then 1 else 0
+
+(* Cast int to bool *)
+let to_bool i = i != 0
+
+(* Cast (int->int->bool) to (int->int->int) *)
+let c_op1 f = fun a b -> to_int (f a b)
+
+(* Cast (bool->bool->bool) to (int->int->int) *)
+let c_op2 f = fun a b -> to_int (f (to_bool a) (to_bool b))
+
+(* Source operator into OCaml operator *)
+let eval_op op = match op with
+    | "!!" -> c_op2 ( || )
+    | "&&" -> c_op2 ( && )
+    | "==" -> c_op1 ( = )
+    | "!=" -> c_op1 ( <> )
+    | "<=" -> c_op1 ( <= )
+    | "<"  -> c_op1 ( < )
+    | ">=" -> c_op1 ( >= )
+    | ">"  -> c_op1 ( > )
+    | "+"  -> ( + )
+    | "-"  -> ( - )
+    | "*"  -> ( * )
+    | "/"  -> ( / )
+    | "%"  -> ( mod )
+    | _    -> failwith (Printf.sprintf "Unknown operator");;
+
+
+let rec eval s e = match e with
+    | Const n          -> n
+    | Var x            -> s x
+    | Binop (op, l, r) -> eval_op op (eval s l) (eval s r);;
+  
 
   end
                     
@@ -65,7 +93,15 @@ module Stmt =
 
        Takes a configuration and a statement, and returns another configuration
     *)
-    let eval _ = failwith "Not implemented yet"
+  let rec eval config statement = 
+  let (state, input, output) = config in
+  match statement with
+    | Read variable_name -> (match input with
+      | head::tail -> (Expr.update variable_name head state, tail, output))
+    | Write expression -> (state, input, output @ [Expr.eval state expression])
+    | Assign (variable_name, expression) -> (Expr.update variable_name (Expr.eval state expression) state, input, output)
+    | Seq (state1, state2) -> eval (eval config state1) state2;;
+  
                                                          
   end
 
