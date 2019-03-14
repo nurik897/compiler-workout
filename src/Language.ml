@@ -44,7 +44,42 @@ module Expr =
        Takes a state and an expression, and returns the value of the expression in 
        the given state.
      *)                                                       
-    let eval _ _ = failwith "Not yet implemented"
+(* Cast bool to int *)
+let to_int b = if b then 1 else 0
+
+(* Cast int to bool *)
+let to_bool i = i != 0
+
+(* Cast (int->int->bool) to (int->int->int) *)
+let c_op1 f = fun a b -> to_int (f a b)
+
+(* Cast (bool->bool->bool) to (int->int->int) *)
+let c_op2 f = fun a b -> to_int (f (to_bool a) (to_bool b))
+
+(* Source operator into OCaml operator *)
+let eval_op op = match op with
+    | "!!" -> c_op2 ( || )
+    | "&&" -> c_op2 ( && )
+    | "==" -> c_op1 ( = )
+    | "!=" -> c_op1 ( <> )
+    | "<=" -> c_op1 ( <= )
+    | "<"  -> c_op1 ( < )
+    | ">=" -> c_op1 ( >= )
+    | ">"  -> c_op1 ( > )
+    | "+"  -> ( + )
+    | "-"  -> ( - )
+    | "*"  -> ( * )
+    | "/"  -> ( / )
+    | "%"  -> ( mod )
+    | _    -> failwith (Printf.sprintf "Unknown operator");;
+
+
+let rec eval s e = match e with
+    | Const n          -> n
+    | Var x            -> s x
+    | Binop (op, l, r) -> eval_op op (eval s l) (eval s r);;
+
+let parseBinOp op = ostap(- $(op)), (fun x y -> Binop (op, x, y))
 
     (* Expression parser. You can use the following terminals:
 
@@ -53,7 +88,22 @@ module Expr =
                                                                                                                   
     *)
     ostap (                                      
-      parse: empty {failwith "Not yet implemented"}
+      expr:
+            !(Ostap.Util.expr
+                (fun x -> x)
+                (Array.map (fun (assoc, ops) -> assoc, List.map parseBinOp ops)
+                  [|
+                    `Lefta, ["!!"];
+                    `Lefta, ["&&"];
+                    `Nona , ["<="; "<"; ">="; ">"; "=="; "!="];
+                    `Lefta, ["+"; "-"];
+                    `Lefta, ["*"; "/"; "%"];
+                  |]
+               )
+               primary
+            );
+
+        primary: n:DECIMAL {Const n} | x:IDENT {Var x} | -"(" expr -")"
     )
     
   end
@@ -78,11 +128,22 @@ module Stmt =
 
        Takes a configuration and a statement, and returns another configuration
     *)
-    let eval _ _ = failwith "Not yet implemented"
+    let rec eval config statement = 
+    let (state, input, output) = config in
+    match statement with
+      | Read variable_name -> (match input with
+        | head::tail -> (Expr.update variable_name head state, tail, output))
+      | Write expression -> (state, input, output @ [Expr.eval state expression])
+      | Assign (variable_name, expression) -> (Expr.update variable_name (Expr.eval state expression) state, input, output)
+      | Seq (state1, state2) -> eval (eval config state1) state2;;
 
     (* Statement parser *)
     ostap (
-      parse: empty {failwith "Not yet implemented"}
+      line: "read"  "("  x:IDENT        ")" {Read x}
+          | "write" "("  e:!(Expr.expr) ")" {Write e}
+          | x:IDENT ":=" e:!(Expr.expr)     {Assign (x, e)};
+
+        parse: l:line ";" rest:parse {Seq (l, rest)} | line
     )
       
   end
