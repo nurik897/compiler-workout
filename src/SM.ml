@@ -29,7 +29,7 @@ let eval_insn config insn =
   let (state, input, output) = stmt_config in
   match insn with
   | BINOP operator -> (match stack with
-    | y::x::tail -> ([(Expr.eval_op operator) x y]@tail, stmt_config))
+    | y::x::tail -> ([(Language.Expr.eval_op operator) x y]@tail, stmt_config))
     | CONST value -> ([value]@stack, stmt_config)                 
   | READ -> (match input with
     | head::tail -> ([head]@stack, (state, tail, output)))
@@ -37,15 +37,17 @@ let eval_insn config insn =
     | head::tail -> (tail, (state, input, output@[head])))
   | LD  variable_name -> ([state variable_name]@stack, stmt_config)
   | ST  variable_name -> (match stack with
-    | head::tail -> (tail, (Expr.update variable_name head state, input, output)))
+    | head::tail -> (tail, (Language.Expr.update variable_name head state, input, output)))
 
+
+let rec eval config insn : config = List.fold_left eval_insn config insn
 (* Top-level evaluation
 
      val run : prg -> int list -> int list
 
    Takes a program, an input stream, and returns an output stream this program calculates
 *)
-let run p i = let (_, (_, _, o)) = eval ([], (Expr.empty, i, [])) p in o
+let run p i = let (_, (_, _, o)) = eval ([], (Language.Expr.empty, i, [])) p in o
 
 (* Stack machine compiler
 
