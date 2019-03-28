@@ -4,7 +4,7 @@
 open GT
 
 (* Opening a library for combinator-based syntax analysis *)
-open Ostap.Combinators
+open Ostap
        
 (* Simple expressions: syntax and semantics *)
 module Expr =
@@ -44,7 +44,42 @@ module Expr =
        Takes a state and an expression, and returns the value of the expression in 
        the given state.
     *)                                                       
-    let eval st expr = failwith "Not yet implemented"
+(* Cast bool to int *)
+let to_int b = if b then 1 else 0
+
+(* Cast int to bool *)
+let to_bool i = i != 0
+
+(* Cast (int->int->bool) to (int->int->int) *)
+let c_op1 f = fun a b -> to_int (f a b)
+
+(* Cast (bool->bool->bool) to (int->int->int) *)
+let c_op2 f = fun a b -> to_int (f (to_bool a) (to_bool b))
+
+(* Source operator into OCaml operator *)
+let eval_op op = match op with
+
+    | "!!" -> c_op2 ( || )
+    | "&&" -> c_op2 ( && )
+    | "==" -> c_op1 ( = )
+    | "!=" -> c_op1 ( <> )
+    | "<=" -> c_op1 ( <= )
+    | "<"  -> c_op1 ( < )
+    | ">=" -> c_op1 ( >= )
+    | ">"  -> c_op1 ( > )
+    | "+"  -> ( + )
+    | "-"  -> ( - )
+    | "*"  -> ( * )
+    | "/"  -> ( / )
+    | "%"  -> ( mod )
+    | _    -> failwith (Printf.sprintf "Unknown operator");;
+
+let rec eval s e = match e with
+    | Const n          -> n
+    | Var x            -> s x
+    | Binop (op, l, r) -> eval_op op (eval s l) (eval s r);;
+
+let parseBinOp op = ostap(- $(op)), (fun x y -> Binop (op, x, y))
 
     (* Expression parser. You can use the following terminals:
 
@@ -53,7 +88,21 @@ module Expr =
                                                                                                                   
     *)
     ostap (                                      
-      parse: empty {failwith "Not yet implemented"}
+      expr:
+      !(Ostap.Util.expr
+          (fun x -> x)
+          (Array.map (fun (assoc, ops) -> assoc, List.map parseBinOp ops)
+            [|
+              `Lefta, ["!!"];
+              `Lefta, ["&&"];
+              `Nona , ["<="; "<"; ">="; ">"; "=="; "!="];
+              `Lefta, ["+"; "-"];
+              `Lefta, ["*"; "/"; "%"];
+            |]
+         )
+         primary
+      );
+      primary: n:DECIMAL {Const n} | x:IDENT {Var x} | -"(" expr -")"
     )
     
   end
@@ -71,7 +120,7 @@ module Stmt =
     (* empty statement                  *) | Skip
     (* conditional                      *) | If     of Expr.t * t * t
     (* loop with a pre-condition        *) | While  of Expr.t * t
-    (* loop with a post-condition       *) (* add yourself *)  with show
+    (* loop with a post-condition       *) | Repeat of t * Expr.t   with show
                                                                     
     (* The type of configuration: a state, an input stream, an output stream *)
     type config = Expr.state * int list * int list 
@@ -82,11 +131,57 @@ module Stmt =
 
        Takes a configuration and a statement, and returns another configuration
     *)
-    let rec eval conf stmt = failwith "Not yet implemented"
+    
+    let rec eval config statement = 
+      let (state, input, output) = config in
+      match statement with
+        | Read variable_name -> (match input with
+          | head::tail -> (Expr.update variable_name head state, tail, output))
+        | Write expression -> (state, input, output @ [Expr.eval state expression])
+        | Assign (variable_name, expression) -> (Expr.update variable_name (Expr.eval state expression) state, input, output)
+        | Seq (state1, state2) -> eval (eval config state1) state2
+        | Skip -> (state, input, output)
+        | If (e, thenStmt, elseStmt) -> eval (state, input, output) (if Expr.to_bool (Expr.eval state e) then thenStmt else elseStmt)
+        | While (e, wStmt) -> if Expr.to_bool (Expr.eval state e) then eval (eval (state, input, output) wStmt) statement else (state, input, output)
+        | Repeat (ruStmt, e)-> let (sNew, iNew, oNew) = eval (state, input, output) ruStmt in
+            if not (Expr.to_bool (Expr.eval sNew e)) then eval (sNew, iNew, oNew) statement else (sNew, iNew, oNew)
                                
     (* Statement parser *)
     ostap (
-      parse: empty {failwith "Not yet implemented"}
+      simple:
+      "read" "(" x:IDENT ")"         {Read x}
+    | "write" "(" e:!(Expr.expr) ")" {Write e}
+    | x:IDENT ":=" e:!(Expr.expr)    {Assign (x, e)};
+    ifStmt:
+      "if" e:!(Expr.expr) "then" thenBody:parse
+    elifBranches: (%"elif" elifE:!(Expr.expr) %"then" elifBody:!(parse))*
+    elseBranch: (%"else" elseBody:!(parse))?
+    "fi" {
+       let elseBranch' = match elseBranch with
+         | Some x -> x
+             | None   -> Skip in
+       let expandedElseBody = List.fold_right (fun (e', body') else' -> If (e', body', else')) elifBranches elseBranch' in
+       If (e, thenBody, expandedElseBody)
+     };
+    whileStmt:
+      "while" e:!(Expr.expr) "do" body:parse "od" {While (e, body)};
+    forStmt:
+      "for" initStmt:stmt "," whileCond:!(Expr.expr) "," forStmt:stmt
+      "do" body:parse "od" {Seq (initStmt, While (whileCond, Seq (body, forStmt)))};
+    repeatUntilStmt:
+      "repeat" body:parse "until" e:!(Expr.expr) {Repeat (body, e)};
+    control:
+        ifStmt
+      | whileStmt
+      | forStmt
+      | repeatUntilStmt
+      | "skip" {Skip};
+    stmt:
+        simple
+        | control;
+    parse:
+        stmt1:stmt ";" rest:parse {Seq (stmt1, rest)}
+        | stmt
     )
       
   end
