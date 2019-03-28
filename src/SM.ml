@@ -56,7 +56,7 @@ let rec eval env cfg p = match p with
                         | "nz" -> (match st with
                           | z::st' -> if z <> 0 then (eval env (st', rem) (env#labeled l)) else (eval env (st', rem) tail)
                           | []     -> failwith "CJMP with empty stack"))
-    | _ -> eval env (instrEval cfg instr) tail)
+    | _ -> eval env (eval_insn cfg instr) tail)
     | []-> cfg
 (* Top-level evaluation
 
