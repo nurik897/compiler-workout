@@ -150,11 +150,51 @@ module Stmt =
 
        which returns a list of formal parameters and a body for given definition
     *)
-    let rec eval _ = failwith "Not Implemented Yet"
+    let toBool b = b <> 0
+    let rec eval env (st, input, output) op =
+         match op with
+        | Read    v       -> (State.update v (List.hd input) st, List.tl input, output)
+        | Write   e       -> (st, input, output @ [Expr.eval st e])
+        | Assign (v, e)   -> (State.update v (Expr.eval st e) st, input, output)
+        | If (e1, e2, e3) -> if (Expr.eval st e1) != 0 then eval env (st, input, output) e2 else eval env (st, input, output) e3
+        | While (e1, e2)  -> if toBool (Expr.eval st e1) then eval env (eval env (st, input, output) e2) op else (st, input, output)
+        | Seq    (e1, e2) -> eval env (eval env (st, input, output) e1) e2
+        | Skip            -> (st, input, output)
+        | Repeat (e1, e2)  ->
+            let (st, input, output) = eval env (st, input, output) e1 in
+            let r = Expr.eval st e2 in
+            if r != 0 then (st, input, output) else eval env (st, input, output) op
+        | Call (name, args) ->
+            let (arg_names, locals, body) = env#definition name in
+            let args = List.combine arg_names (List.map (Expr.eval st) args) in
+            let state = State.push_scope st (arg_names @ locals) in
+            let fun_env_w_args = List.fold_left (fun st (name, value) -> State.update name value st) state args in
+            let (new_s, input, output) = eval env (fun_env_w_args,input, output) body in
+            (State.drop_scope new_s st, input, output)
                                 
     (* Statement parser *)
     ostap (                                      
-      parse: empty {failwith "Not yet implemented"}
+      let toBool b = b <> 0
+      let rec eval env (st, input, output) op =
+           match op with
+          | Read    v       -> (State.update v (List.hd input) st, List.tl input, output)
+          | Write   e       -> (st, input, output @ [Expr.eval st e])
+          | Assign (v, e)   -> (State.update v (Expr.eval st e) st, input, output)
+          | If (e1, e2, e3) -> if (Expr.eval st e1) != 0 then eval env (st, input, output) e2 else eval env (st, input, output) e3
+          | While (e1, e2)  -> if toBool (Expr.eval st e1) then eval env (eval env (st, input, output) e2) op else (st, input, output)
+          | Seq    (e1, e2) -> eval env (eval env (st, input, output) e1) e2
+          | Skip            -> (st, input, output)
+          | Repeat (e1, e2)  ->
+              let (st, input, output) = eval env (st, input, output) e1 in
+              let r = Expr.eval st e2 in
+              if r != 0 then (st, input, output) else eval env (st, input, output) op
+          | Call (name, args) ->
+              let (arg_names, locals, body) = env#definition name in
+              let args = List.combine arg_names (List.map (Expr.eval st) args) in
+              let state = State.push_scope st (arg_names @ locals) in
+              let fun_env_w_args = List.fold_left (fun st (name, value) -> State.update name value st) state args in
+              let (new_s, input, output) = eval env (fun_env_w_args,input, output) body in
+              (State.drop_scope new_s st, input, output)
     )
       
   end
@@ -167,7 +207,13 @@ module Definition =
     type t = string * (string list * string list * Stmt.t)
 
     ostap (                                      
-      parse: empty {failwith "Not yet implemented"}
+      parse: "fun" name:IDENT "(" args:(IDENT)* ")" local:(%"local" (IDENT)*)? "{" body:!(Stmt.parse) "}"
+        {
+            let local = match local with
+            | Some x -> x
+            | _ -> [] in
+            name, (args, local, body)
+        }
     )
 
   end
